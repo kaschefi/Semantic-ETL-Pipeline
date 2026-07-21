@@ -5,6 +5,6 @@ pydantic-settings>=2.2.0
 python-dotenv>=1.0.1
 docling>=1.0.0
 ollama>=0.1.7
-pinecone-client>=3.1.0
+pinecone>=3.1.0
 numpy>=2.0.0
 requests>=2.31.0
