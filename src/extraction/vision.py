@@ -72,7 +72,6 @@ class MultimodalVisionEngine:
 
             raw_description = chat_completion.choices[0].message.content
 
-            # FIX: Sanitize the output before letting it enter the pipeline conveyor belt
             clean_description = self._sanitize_response(raw_description)
             return clean_description if clean_description else "[Empty response after sanitization]"
 
