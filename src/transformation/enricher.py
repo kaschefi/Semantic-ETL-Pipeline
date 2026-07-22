@@ -10,7 +10,7 @@ class ChunkEnricher:
     def __init__(self):
         # Initialize the Groq client using your untracked system secrets
         self.client = Groq(api_key=settings.GROQ_API_KEY)
-        self.model_name = "llama3-70b-8192"
+        self.model_name = "openai/gpt-oss-120b"
 
     def enrich_elements(self, elements: List[ExtractedElement], parent_id: str = None) -> ChunkMetadata:
         """
