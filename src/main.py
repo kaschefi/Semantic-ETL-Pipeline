@@ -2,9 +2,10 @@ import os
 import uuid
 import shutil
 from typing import List, Dict, Any, Optional
-from fastapi import FastAPI, HTTPException, File, UploadFile, Form
+from fastapi import FastAPI, HTTPException, File, UploadFile, Form, BackgroundTasks, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+
 from src.config import settings
 from src.models import ExtractedElement, FinalVectorPayload
 from src.extraction.doc_parser import PDFParserEngine
@@ -13,6 +14,11 @@ from src.transformation.chunker import SemanticChunker
 from src.transformation.enricher import ChunkEnricher
 from src.loading.vector_db import VectorDatabaseClient
 from src.agents.core import SemanticRAGAgent
+
+from src.jobs import job_manager, JobRecord
+from src.utils.logger import logger
+from src.utils.cache_cleaner import clean_cache_directory
+from src.providers import get_llm_provider, get_vector_store
 
 
 app = FastAPI(title="Semantic ETL Pipeline API", version="1.0.0")
@@ -26,9 +32,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
 class ETLRequest(BaseModel):
     file_path: str
     namespace: str = "documents"
+
 
 class ETLResponse(BaseModel):
     status: str
@@ -36,13 +44,16 @@ class ETLResponse(BaseModel):
     chunks_processed: int
     upserted_count: int
 
+
 class AgentQueryRequest(BaseModel):
     question: str
     namespace: str = "documents"
     category_filter: Optional[str] = None
 
+
 class AgentQueryResponse(BaseModel):
     answer: str
+
 
 @app.get("/health")
 def health_check():
@@ -55,16 +66,17 @@ def health_check():
         "pinecone_configured": bool(settings.PINECONE_API_KEY),
         "groq_configured": bool(settings.GROQ_API_KEY),
         "ollama_host": settings.OLLAMA_HOST,
-        "index_name": settings.PINECONE_INDEX_NAME
+        "index_name": settings.PINECONE_INDEX_NAME,
+        "llm_provider": getattr(settings, 'LLM_PROVIDER', 'groq'),
+        "vector_store": getattr(settings, 'VECTOR_STORE_PROVIDER', 'pinecone')
     }
+
 
 @app.post("/pipeline/run", response_model=ETLResponse)
 async def run_etl_pipeline(request: ETLRequest):
     """
-    Executes the complete E2E semantic pipeline for a local/mounted file path:
-    Extraction -> Multimodal Vision -> Semantic Chunking -> Groq AI Metadata Enrichment -> Pinecone Ingestion
+    Synchronous E2E semantic pipeline execution for a local/mounted file path.
     """
-    # Generate a single structural tracking pointer for this execution run
     parent_context_id = str(uuid.uuid4())
 
     try:
@@ -76,29 +88,25 @@ async def run_etl_pipeline(request: ETLRequest):
         enricher = ChunkEnricher()
         db_client = VectorDatabaseClient()
 
-        # Extraction
-        print(f" Pipeline started for file: {request.file_path}")
+        logger.info(f"Pipeline execution started for file: {request.file_path}")
         extracted_elements: List[ExtractedElement] = parser.extract_document(request.file_path)
 
         if not extracted_elements:
             raise HTTPException(status_code=400, detail="Document extraction yielded zero elements.")
 
-        # Multimodal Vision Processing for extracted image/diagram elements
         image_elements = [el for el in extracted_elements if el.element_type == "Image" and el.image_cache_path]
         if image_elements:
-            print(f" Found {len(image_elements)} extracted visual elements. Running Groq VLM analysis...")
+            logger.info(f"Processing {len(image_elements)} extracted visual elements via VLM...")
             vision_engine = MultimodalVisionEngine()
             image_paths = [el.image_cache_path for el in image_elements]
             descriptions = await vision_engine.describe_images_batch(image_paths)
             for el, desc in zip(image_elements, descriptions):
                 el.content = f"[Visual Image Summary]: {desc}"
 
-        # Chunker
         grouped_windows = chunker.group_elements(extracted_elements)
-        print(f" Elements aggregated into {len(grouped_windows)} logical semantic windows.")
+        logger.info(f"Elements aggregated into {len(grouped_windows)} logical semantic windows.")
 
-        # Parallel Async Enrichment and Payload Construction
-        print(f" Processing {len(grouped_windows)} semantic windows concurrently via Groq (concurrency={settings.CONCURRENCY_LIMIT})...")
+        logger.info(f"Processing {len(grouped_windows)} semantic windows concurrently via Groq...")
         ai_metadatas = await enricher.enrich_batch(grouped_windows, parent_id=parent_context_id)
 
         final_payloads: List[FinalVectorPayload] = [
@@ -106,8 +114,7 @@ async def run_etl_pipeline(request: ETLRequest):
             for window, metadata in zip(grouped_windows, ai_metadatas)
         ]
 
-        # Vector Loading Ingestion
-        print(f" Upserting payloads directly into Pinecone database index...")
+        logger.info("Upserting vector payloads into index...")
         upserted_count = db_client.upsert_payloads(final_payloads, namespace=request.namespace)
 
         return ETLResponse(
@@ -118,7 +125,7 @@ async def run_etl_pipeline(request: ETLRequest):
         )
 
     except Exception as e:
-        print(f" Pipeline critical failure: {str(e)}")
+        logger.error(f"Pipeline critical failure: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Pipeline processing failed: {str(e)}")
 
 
@@ -128,9 +135,7 @@ async def upload_and_run_pipeline(
     namespace: str = Form("documents")
 ):
     """
-    Accepts direct HTTP binary document upload (multipart/form-data)
-    and executes the complete semantic ETL pipeline.
-    Ideal for external microservices, web apps, and frontends.
+    Synchronous direct HTTP binary document upload (multipart/form-data) execution.
     """
     os.makedirs(settings.CACHE_DIR, exist_ok=True)
     temp_file_path = os.path.join(settings.CACHE_DIR, f"upload_{uuid.uuid4().hex[:8]}_{file.filename}")
@@ -146,8 +151,105 @@ async def upload_and_run_pipeline(
             try:
                 os.remove(temp_file_path)
             except Exception as e:
-                print(f"Temporary file cleanup warning: {e}")
+                logger.warning(f"Temporary file cleanup warning: {e}")
 
+
+# =========================================================
+# ASYNC BACKGROUND JOB MANAGEMENT ENDPOINTS (Non-blocking)
+# =========================================================
+
+async def _run_background_pipeline(job_id: str, file_path: str, namespace: str, remove_temp_file: bool = False):
+    """
+    Worker task executing the ETL pipeline in the background and updating job_manager status.
+    """
+    job_manager.update_job(job_id, status="processing", progress=10.0)
+    try:
+        request = ETLRequest(file_path=file_path, namespace=namespace)
+        response = await run_etl_pipeline(request)
+        job_manager.update_job(
+            job_id,
+            status="completed",
+            progress=100.0,
+            result=response.model_dump()
+        )
+        logger.info(f"Background job {job_id} completed successfully.")
+    except Exception as err:
+        job_manager.update_job(
+            job_id,
+            status="failed",
+            progress=100.0,
+            error=str(err)
+        )
+        logger.error(f"Background job {job_id} failed: {err}")
+    finally:
+        if remove_temp_file and os.path.exists(file_path):
+            try:
+                os.remove(file_path)
+            except Exception as e:
+                logger.warning(f"Temp file cleanup failed: {e}")
+        # Run cache garbage collection
+        clean_cache_directory(settings.CACHE_DIR, max_age_seconds=1800)
+
+
+@app.post("/pipeline/jobs/upload", response_model=JobRecord, status_code=status.HTTP_202_ACCEPTED)
+async def create_background_upload_job(
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...),
+    namespace: str = Form("documents")
+):
+    """
+    Submits a PDF upload for non-blocking background processing.
+    Returns HTTP 202 Accepted with a job tracking ID.
+    """
+    os.makedirs(settings.CACHE_DIR, exist_ok=True)
+    temp_file_path = os.path.join(settings.CACHE_DIR, f"bg_upload_{uuid.uuid4().hex[:8]}_{file.filename}")
+    
+    with open(temp_file_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+
+    job = job_manager.create_job(file_path=temp_file_path, namespace=namespace)
+    background_tasks.add_task(_run_background_pipeline, job.job_id, temp_file_path, namespace, True)
+    
+    return job
+
+
+@app.post("/pipeline/jobs/run", response_model=JobRecord, status_code=status.HTTP_202_ACCEPTED)
+async def create_background_run_job(
+    request: ETLRequest,
+    background_tasks: BackgroundTasks
+):
+    """
+    Submits a mounted file path for non-blocking background processing.
+    Returns HTTP 202 Accepted with a job tracking ID.
+    """
+    job = job_manager.create_job(file_path=request.file_path, namespace=request.namespace)
+    background_tasks.add_task(_run_background_pipeline, job.job_id, request.file_path, request.namespace, False)
+    
+    return job
+
+
+@app.get("/pipeline/jobs/{job_id}", response_model=JobRecord)
+def get_job_status(job_id: str):
+    """
+    Queries real-time execution status and results for a specific job_id.
+    """
+    job = job_manager.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail=f"Job ID '{job_id}' not found.")
+    return job
+
+
+@app.get("/pipeline/jobs", response_model=List[JobRecord])
+def list_recent_jobs(limit: int = 20):
+    """
+    Lists recent background jobs and their execution states.
+    """
+    return job_manager.list_jobs(limit=limit)
+
+
+# =========================================================
+# GROUNDED RAG AGENT QUERY ENDPOINT
+# =========================================================
 
 @app.post("/agent/query", response_model=AgentQueryResponse)
 def query_rag_agent(request: AgentQueryRequest):

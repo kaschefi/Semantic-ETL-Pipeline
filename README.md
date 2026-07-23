@@ -164,10 +164,14 @@ volumes:
 
 | Endpoint | Method | Description |
 |---|---|---|
-| `/health` | `GET` | Container healthcheck & infrastructure status |
-| `/pipeline/upload` | `POST` | Multipart PDF upload & full ETL pipeline execution |
-| `/pipeline/run` | `POST` | Execute ETL pipeline for local/mounted file path |
-| `/agent/query` | `POST` | Grounded RAG agent retrieval & question answering |
+| `/health` | `GET` | Container healthcheck, infrastructure status & active provider inspection |
+| `/pipeline/upload` | `POST` | Synchronous PDF upload & full ETL pipeline execution |
+| `/pipeline/run` | `POST` | Synchronous ETL pipeline execution for local/mounted file path |
+| `/pipeline/jobs/upload` | `POST` | Non-blocking HTTP PDF upload job submission (Returns `202 Accepted` + `job_id`) |
+| `/pipeline/jobs/run` | `POST` | Non-blocking mounted file path job submission (Returns `202 Accepted` + `job_id`) |
+| `/pipeline/jobs/{job_id}` | `GET` | Real-time status, progress %, and completion results for a background job |
+| `/pipeline/jobs` | `GET` | List recent background processing jobs |
+| `/agent/query` | `POST` | Grounded RAG agent retrieval (Hybrid Search + Reranking) |
 
 ---
 
