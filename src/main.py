@@ -58,10 +58,10 @@ def health_check():
     }
 
 @app.post("/pipeline/run", response_model=ETLResponse)
-def run_etl_pipeline(request: ETLRequest):
+async def run_etl_pipeline(request: ETLRequest):
     """
     Executes the complete E2E semantic pipeline for a local/mounted file path:
-    Extraction -> Semantic Chunking -> Groq AI Metadata Enrichment -> Pinecone Ingestion
+    Extraction -> Semantic Chunking -> Groq AI Metadata Enrichment (Parallel) -> Pinecone Ingestion
     """
     # Generate a single structural tracking pointer for this execution run
     parent_context_id = str(uuid.uuid4())
@@ -86,17 +86,14 @@ def run_etl_pipeline(request: ETLRequest):
         grouped_windows = chunker.group_elements(extracted_elements)
         print(f" Elements aggregated into {len(grouped_windows)} logical semantic windows.")
 
-        # Enrichment and Payload Construction
-        final_payloads: List[FinalVectorPayload] = []
+        # Parallel Async Enrichment and Payload Construction
+        print(f" Processing {len(grouped_windows)} semantic windows concurrently via Groq (concurrency={settings.CONCURRENCY_LIMIT})...")
+        ai_metadatas = await enricher.enrich_batch(grouped_windows, parent_id=parent_context_id)
 
-        for idx, window in enumerate(grouped_windows):
-            print(f" Processing chunk {idx+1}/{len(grouped_windows)} via Groq...")
-            # Generate AI-enriched tagging data contracts
-            ai_metadata = enricher.enrich_elements(window, parent_id=parent_context_id)
-
-            # Map structural chunks and AI tags to your exact Pinecone data contract layout
-            payload = db_client.build_payload(window, ai_metadata)
-            final_payloads.append(payload)
+        final_payloads: List[FinalVectorPayload] = [
+            db_client.build_payload(window, metadata)
+            for window, metadata in zip(grouped_windows, ai_metadatas)
+        ]
 
         # Vector Loading Ingestion
         print(f" Upserting payloads directly into Pinecone database index...")
@@ -131,7 +128,7 @@ async def upload_and_run_pipeline(
             shutil.copyfileobj(file.file, buffer)
 
         request = ETLRequest(file_path=temp_file_path, namespace=namespace)
-        response = run_etl_pipeline(request)
+        response = await run_etl_pipeline(request)
         return response
     finally:
         if os.path.exists(temp_file_path):

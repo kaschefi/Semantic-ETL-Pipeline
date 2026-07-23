@@ -23,9 +23,10 @@ class Settings(BaseSettings):
     GROQ_API_KEY: Optional[str] = None
     GROQ_VISION_MODEL: str = "qwen/qwen3.6-27b"
 
-    # Chunking Options
+    # Chunking & Concurrency Options
     MAX_CHUNK_CHARS: int = 1200
     OVERLAP_ELEMENTS: int = 1
+    CONCURRENCY_LIMIT: int = 5
 
     # Local Filesystem Asset Paths
     DATA_DIR: str = os.path.abspath(os.path.join(os.path.dirname(__file__), "../data"))

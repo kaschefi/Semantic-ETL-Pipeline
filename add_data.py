@@ -1,5 +1,6 @@
 # run_e2e_test.py
 import os
+import asyncio
 from dotenv import load_dotenv
 
 # Pre-load infrastructure keys
@@ -11,7 +12,7 @@ from src.main import run_etl_pipeline, ETLRequest
 
 # Stub wrapper to simulate live file parser for mock integration testing
 class MockDoclingParser:
-    def parse_file(self, path: str):
+    def extract_document(self, path: str):
         print(" Simulating document extraction parsing mechanics...")
         return [
             ExtractedElement(element_type="Header", content="Section 2: System Architecture Requirements",
@@ -33,16 +34,16 @@ def execute_complete_pipeline_test():
 
     # Monkeypatch the main logic to run smoothly for our integration test simulation
     import src.main
-    src.main.DoclingParser = MockDoclingParser
+    src.main.PDFParserEngine = MockDoclingParser
 
     # Configure the request payload contract
     test_request = ETLRequest(
-        file_path="data/01.pdf",
+        file_path="data/02.pdf",
         namespace="integration-testing-sandbox"
     )
 
-    # Execute the orchestrated data workflow pipeline
-    result = run_etl_pipeline(test_request)
+    # Execute the orchestrated async data workflow pipeline
+    result = asyncio.run(run_etl_pipeline(test_request))
 
     print("\n Pipeline Execution Completed Successfully!")
     print("==================================================")
