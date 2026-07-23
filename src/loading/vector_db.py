@@ -7,8 +7,8 @@ from src.models import ExtractedElement, ChunkMetadata, FinalVectorPayload
 
 class VectorDatabaseClient:
     def __init__(self):
-        self.pc = Pinecone(api_key=settings.PINECONE_API_KEY) \
-            if hasattr(settings, 'PINECONE_API_KEY') else None
+        api_key = getattr(settings, 'PINECONE_API_KEY', None)
+        self.pc = Pinecone(api_key=api_key) if api_key else None
 
         self.index_name = getattr(settings, "PINECONE_INDEX_NAME", "semantic-etl-index")
         self.index = self.pc.Index(self.index_name) if self.pc else None

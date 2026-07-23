@@ -7,7 +7,7 @@ from src.agents.retriever import ContextRetriever
 class SemanticRAGAgent:
     def __init__(self):
         self.client = Groq(api_key=settings.GROQ_API_KEY) \
-            if hasattr(settings, 'GROQ_API_KEY') else None
+            if getattr(settings, 'GROQ_API_KEY', None) else None
         self.model_name = "openai/gpt-oss-120b"
         self.retriever = ContextRetriever()
 

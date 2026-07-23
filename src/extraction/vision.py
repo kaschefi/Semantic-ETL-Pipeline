@@ -10,7 +10,7 @@ class MultimodalVisionEngine:
         """
         Initializes the cloud-based Groq client using your environment settings.
         """
-        self.client = Groq(api_key=settings.GROQ_API_KEY)
+        self.client = Groq(api_key=settings.GROQ_API_KEY) if getattr(settings, 'GROQ_API_KEY', None) else None
         self.model_name = settings.GROQ_VISION_MODEL
 
     def _encode_image_to_base64(self, image_path: str) -> str:
@@ -37,6 +37,9 @@ class MultimodalVisionEngine:
         """
         if not os.path.exists(image_path):
             raise FileNotFoundError(f"Image not found at cache target: {image_path}")
+
+        if not self.client:
+            return f"[Vision Skipped: Groq client not configured with API Key for image {os.path.basename(image_path)}]"
 
         print(f"[Vision] Streaming image to Groq LPU ({self.model_name}): {os.path.basename(image_path)}...")
 

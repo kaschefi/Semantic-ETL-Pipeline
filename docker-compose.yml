@@ -1,0 +1,42 @@
+version: '3.8'
+
+services:
+  semantic-etl-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: semantic-etl-pipeline:latest
+    container_name: semantic_etl_pipeline
+    ports:
+      - "${PORT:-8000}:8000"
+    env_file:
+      - .env
+    environment:
+      - HOST=0.0.0.0
+      - PORT=8000
+      # Use host.docker.internal when connecting to Ollama running on the host OS
+      - OLLAMA_HOST=${OLLAMA_HOST:-http://host.docker.internal:11434}
+    volumes:
+      # Live-mount source code directory for instant hot-reloading upon saving code changes
+      - ./src:/app/src
+      # Mount local data directory for persistent caching and input document processing
+      - ./data:/app/data
+    # Command with --reload flag enables Uvicorn auto-reloading whenever files in ./src change
+    command: uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload --reload-dir /app/src
+    develop:
+      watch:
+        - action: sync
+          path: ./src
+          target: /app/src
+        - action: rebuild
+          path: ./requirements.txt
+    extra_hosts:
+      # Maps host.docker.internal to host machine IP across Linux/macOS/Windows Docker engine
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    restart: unless-stopped

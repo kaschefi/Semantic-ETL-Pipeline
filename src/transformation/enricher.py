@@ -8,8 +8,8 @@ from src.models import ExtractedElement, ChunkMetadata
 
 class ChunkEnricher:
     def __init__(self):
-        # Initialize the Groq client using your untracked system secrets
-        self.client = Groq(api_key=settings.GROQ_API_KEY)
+        # Initialize the Groq client safely if API key is provided
+        self.client = Groq(api_key=settings.GROQ_API_KEY) if settings.GROQ_API_KEY else None
         self.model_name = "openai/gpt-oss-120b"
 
     def enrich_elements(self, elements: List[ExtractedElement], parent_id: str = None) -> ChunkMetadata:
