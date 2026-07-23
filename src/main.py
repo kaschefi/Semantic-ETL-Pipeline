@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from src.config import settings
 from src.models import ExtractedElement, FinalVectorPayload
 from src.extraction.doc_parser import PDFParserEngine
+from src.extraction.vision import MultimodalVisionEngine
 from src.transformation.chunker import SemanticChunker
 from src.transformation.enricher import ChunkEnricher
 from src.loading.vector_db import VectorDatabaseClient
@@ -61,7 +62,7 @@ def health_check():
 async def run_etl_pipeline(request: ETLRequest):
     """
     Executes the complete E2E semantic pipeline for a local/mounted file path:
-    Extraction -> Semantic Chunking -> Groq AI Metadata Enrichment (Parallel) -> Pinecone Ingestion
+    Extraction -> Multimodal Vision -> Semantic Chunking -> Groq AI Metadata Enrichment -> Pinecone Ingestion
     """
     # Generate a single structural tracking pointer for this execution run
     parent_context_id = str(uuid.uuid4())
@@ -81,6 +82,16 @@ async def run_etl_pipeline(request: ETLRequest):
 
         if not extracted_elements:
             raise HTTPException(status_code=400, detail="Document extraction yielded zero elements.")
+
+        # Multimodal Vision Processing for extracted image/diagram elements
+        image_elements = [el for el in extracted_elements if el.element_type == "Image" and el.image_cache_path]
+        if image_elements:
+            print(f" Found {len(image_elements)} extracted visual elements. Running Groq VLM analysis...")
+            vision_engine = MultimodalVisionEngine()
+            image_paths = [el.image_cache_path for el in image_elements]
+            descriptions = await vision_engine.describe_images_batch(image_paths)
+            for el, desc in zip(image_elements, descriptions):
+                el.content = f"[Visual Image Summary]: {desc}"
 
         # Chunker
         grouped_windows = chunker.group_elements(extracted_elements)

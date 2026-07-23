@@ -1,5 +1,5 @@
-# src/transformation/chunker.py
-import uuid
+# src/transformation/enricher.py -> src/transformation/chunker.py
+import re
 from typing import List
 from src.models import ExtractedElement
 
@@ -11,8 +11,8 @@ class SemanticChunker:
 
     def group_elements(self, elements: List[ExtractedElement]) -> List[List[ExtractedElement]]:
         """
-        Groups sequential ExtractedElements into windows based on character count
-        to ensure paragraphs and tables stay intact as semantic units.
+        Groups ExtractedElements using structural breakpoints (Header/Table)
+        and character limits to ensure natural semantic topic boundaries.
         """
         chunks = []
         current_chunk = []
@@ -20,13 +20,14 @@ class SemanticChunker:
 
         for element in elements:
             element_len = len(element.content)
+            is_header = element.element_type in ["Header", "Title", "SectionHeader"]
+            is_table = element.element_type in ["Table", "TableItem"]
 
-            # If adding this element exceeds the size and we already have content, close the chunk
-            if current_length + element_len > self.max_chunk_chars and current_chunk:
+            # If adding this element exceeds max size OR hits a new Header boundary with existing content
+            if (current_length + element_len > self.max_chunk_chars or (is_header and current_length > 300)) and current_chunk:
                 chunks.append(current_chunk)
-                # Implement element-based overlap
-                current_chunk = current_chunk[-self.overlap_elements:] if self.overlap_elements < len(
-                    current_chunk) else current_chunk
+                # Apply overlap
+                current_chunk = current_chunk[-self.overlap_elements:] if self.overlap_elements < len(current_chunk) else current_chunk
                 current_length = sum(len(el.content) for el in current_chunk)
 
             current_chunk.append(element)

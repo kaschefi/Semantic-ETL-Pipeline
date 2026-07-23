@@ -1,3 +1,4 @@
+import re
 import hashlib
 from typing import List, Dict, Any
 from pinecone import Pinecone
@@ -37,9 +38,14 @@ class VectorDatabaseClient:
         deterministic_id = hashlib.md5(text_content.encode('utf-8')).hexdigest()
         vector_array = self.generate_embedding(text_content)
 
+        # Extract clean lower-case search tokens for hybrid keyword matching
+        raw_tokens = re.findall(r'\b[a-zA-Z0-9_\-]{3,}\b', text_content.lower())
+        unique_tokens = list(set(raw_tokens + [k.lower() for k in ai_metadata.keywords]))[:50]
+
         flat_metadata = {
             "summary": ai_metadata.summary,
             "keywords": ai_metadata.keywords,  # String array filtering
+            "search_tokens": unique_tokens,
             "category": ai_metadata.category,
             "parent_context_id": ai_metadata.parent_context_id or "",
             "source_pages": list(set([str(el.source_page) for el in elements if el.source_page is not None])),
