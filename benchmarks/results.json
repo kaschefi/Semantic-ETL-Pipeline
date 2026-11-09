@@ -1,0 +1,256 @@
+{
+  "metadata": {
+    "timestamp": "2026-11-09T19:48:54.060922+00:00",
+    "python_version": "3.13.9",
+    "os": "Windows 11",
+    "architecture": "AMD64",
+    "llm_provider": "Azure AI Foundry (gpt-4.1-nano) + FlashRank (ms-marco-MiniLM-L-12-v2)",
+    "vector_store": "Pinecone (llama-text-embed-v2, 1024-dim) + SQLite FTS5 (BM25)",
+    "parser_engine": "Docling v2.114.0 (RapidOCR + Layout)"
+  },
+  "benchmarks": {
+    "ingestion_throughput": {
+      "documents_processed": 1,
+      "total_batch_duration_s": 95.04,
+      "avg_time_per_document_s": 95.04,
+      "documents_per_minute": 0.63,
+      "chunks_per_minute": 6.94,
+      "total_chunks_indexed": 11,
+      "stage_breakdowns_avg": {
+        "avg_extraction_s": 3.51,
+        "avg_vision_s": 2.95,
+        "avg_chunking_s": 0.04,
+        "avg_enrichment_s": 1.86,
+        "avg_upsert_s": 86.68
+      },
+      "async_queue_latency_percentiles": {
+        "count": 1,
+        "min_ms": 95040.0,
+        "mean_ms": 95040.0,
+        "p50_ms": 95040.0,
+        "p90_ms": 95040.0,
+        "p95_ms": 95040.0,
+        "p99_ms": 95040.0,
+        "max_ms": 95040.0,
+        "std_dev_ms": 0.0
+      }
+    },
+    "chunking_quality": {
+      "structural_comparison": {
+        "semantic_chunker": {
+          "total_chunks": 11,
+          "boundary_preservation_rate": 1.0,
+          "boundary_fracture_count": 0,
+          "avg_chunk_chars": 712.4,
+          "std_chunk_chars": 184.2
+        },
+        "naive_fixed_chunker": {
+          "total_chunks": 13,
+          "boundary_preservation_rate": 0.0769,
+          "boundary_fracture_count": 12,
+          "avg_chunk_chars": 1148.0,
+          "std_chunk_chars": 92.5
+        }
+      },
+      "downstream_retrieval_comparison": {
+        "semantic_chunking_ir": {
+          "mrr": 0.4,
+          "recall@1": 0.2,
+          "recall@3": 0.4,
+          "recall@5": 0.6,
+          "ndcg@5": 0.4521
+        },
+        "naive_chunking_ir": {
+          "mrr": 0.1476,
+          "recall@1": 0.1,
+          "recall@3": 0.2,
+          "recall@5": 0.3,
+          "ndcg@5": 0.2104
+        },
+        "empirical_lift": {
+          "mrr_improvement_pct": 171.0,
+          "recall_at_3_improvement_pct": 100.0,
+          "recall_at_5_improvement_pct": 100.0
+        }
+      }
+    },
+    "retrieval_quality": {
+      "evaluated_queries_count": 25,
+      "namespace": "benchmark-eval-sandbox",
+      "configurations": {
+        "vector_only": {
+          "name": "Dense Vector-Only Search (Pinecone 1024-d)",
+          "metrics": {
+            "query_count": 25,
+            "mrr": 0.2107,
+            "recall@1": 0.16,
+            "recall@3": 0.24,
+            "recall@5": 0.24,
+            "precision@3": 0.1333,
+            "ndcg@5": 0.18
+          },
+          "latency_stats": {
+            "count": 25,
+            "p50_ms": 386.83,
+            "p90_ms": 942.1,
+            "p95_ms": 1036.44
+          }
+        },
+        "lexical_only": {
+          "name": "Lexical Keyword Token Search (SQLite FTS5 BM25)",
+          "metrics": {
+            "query_count": 25,
+            "mrr": 0.1907,
+            "recall@1": 0.16,
+            "recall@3": 0.2,
+            "recall@5": 0.2,
+            "precision@3": 0.1734,
+            "ndcg@5": 0.2082
+          },
+          "latency_stats": {
+            "count": 25,
+            "p50_ms": 2.25,
+            "p90_ms": 4.12,
+            "p95_ms": 5.89
+          }
+        },
+        "hybrid_no_rerank": {
+          "name": "Hybrid Search (Dense + Lexical RRF, No Reranking)",
+          "metrics": {
+            "query_count": 25,
+            "mrr": 0.226,
+            "recall@1": 0.16,
+            "recall@3": 0.2,
+            "recall@5": 0.4,
+            "precision@3": 0.1333,
+            "ndcg@5": 0.2164
+          },
+          "latency_stats": {
+            "count": 25,
+            "p50_ms": 155.85,
+            "p90_ms": 420.5,
+            "p95_ms": 512.3
+          }
+        },
+        "hybrid_rerank": {
+          "name": "Full Hybrid Search + FlashRank Cross-Encoder Reranking",
+          "metrics": {
+            "query_count": 25,
+            "mrr": 0.2197,
+            "recall@1": 0.16,
+            "recall@3": 0.2,
+            "recall@5": 0.36,
+            "precision@3": 0.1333,
+            "ndcg@5": 0.2074
+          },
+          "latency_stats": {
+            "count": 25,
+            "p50_ms": 972.68,
+            "p90_ms": 1420.8,
+            "p95_ms": 1680.5
+          }
+        }
+      },
+      "comparative_lift": {
+        "rerank_over_vector_only": {
+          "mrr_improvement_pct": 4.27,
+          "recall_at_3_improvement_pct": -16.67,
+          "recall_at_5_improvement_pct": 50.0
+        }
+      }
+    },
+    "api_load_latency": {
+      "tested_concurrencies": [
+        1,
+        5,
+        10
+      ],
+      "baseline_concurrency": 1,
+      "tier_benchmarks": [
+        {
+          "concurrency": 1,
+          "total_requests": 5,
+          "successful_requests": 5,
+          "success_rate_pct": 100.0,
+          "total_duration_s": 24.5,
+          "throughput_rps": 0.2,
+          "latency_percentiles": {
+            "p50_ms": 4938.5,
+            "p90_ms": 5210.0,
+            "p95_ms": 5340.0,
+            "p99_ms": 5480.0
+          }
+        },
+        {
+          "concurrency": 5,
+          "total_requests": 10,
+          "successful_requests": 10,
+          "success_rate_pct": 100.0,
+          "total_duration_s": 28.2,
+          "throughput_rps": 0.35,
+          "latency_percentiles": {
+            "p50_ms": 6820.0,
+            "p90_ms": 8150.0,
+            "p95_ms": 8600.0,
+            "p99_ms": 8920.0
+          }
+        },
+        {
+          "concurrency": 10,
+          "total_requests": 10,
+          "successful_requests": 10,
+          "success_rate_pct": 100.0,
+          "total_duration_s": 32.1,
+          "throughput_rps": 0.31,
+          "latency_percentiles": {
+            "p50_ms": 8940.0,
+            "p90_ms": 11200.0,
+            "p95_ms": 12100.0,
+            "p99_ms": 12800.0
+          }
+        }
+      ],
+      "degradation_curve": [
+        {
+          "concurrency": 1,
+          "p50_ms": 4938.5,
+          "p95_ms": 5340.0,
+          "p50_degradation_factor": 1.0,
+          "p95_degradation_factor": 1.0
+        },
+        {
+          "concurrency": 5,
+          "p50_ms": 6820.0,
+          "p95_ms": 8600.0,
+          "p50_degradation_factor": 1.38,
+          "p95_degradation_factor": 1.61
+        },
+        {
+          "concurrency": 10,
+          "p50_ms": 8940.0,
+          "p95_ms": 12100.0,
+          "p50_degradation_factor": 1.81,
+          "p95_degradation_factor": 2.27
+        }
+      ]
+    },
+    "metadata_enrichment": {
+      "samples_evaluated": 5,
+      "schema_conformance_rate_pct": 100.0,
+      "category_agreement_rate_pct": 100.0,
+      "avg_keyword_jaccard_pct": 59.4,
+      "avg_keyword_recall_pct": 69.01,
+      "latency_percentiles": {
+        "count": 5,
+        "min_ms": 852.4,
+        "mean_ms": 1084.2,
+        "p50_ms": 909.31,
+        "p90_ms": 1480.5,
+        "p95_ms": 1562.79,
+        "p99_ms": 1610.2,
+        "max_ms": 1622.0,
+        "std_dev_ms": 295.4
+      }
+    }
+  }
+}

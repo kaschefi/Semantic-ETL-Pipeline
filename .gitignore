@@ -1,2 +1,4 @@
 roadmap.md
 .env
+data/
+__pycache__

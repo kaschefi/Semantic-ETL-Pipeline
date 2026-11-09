@@ -1,9 +1,16 @@
-# src/agent/retriever.py
-import re
-from typing import List, Dict, Any
+# src/agents/retriever.py
+from typing import List, Dict, Any, Optional
 from src.loading.vector_db import VectorDatabaseClient
+from src.agents.fusion import reciprocal_rank_fusion
+from src.utils.logger import logger
+
 
 class ContextRetriever:
+    """
+    Enterprise Dual-Path Hybrid Retriever.
+    Combines Pinecone 1024-d Dense Vector Search with SQLite FTS5 BM25 Sparse Search,
+    fused via Reciprocal Rank Fusion (RRF).
+    """
     def __init__(self):
         self.db = VectorDatabaseClient()
 
@@ -12,23 +19,23 @@ class ContextRetriever:
         query_text: str,
         namespace: str = "documents",
         top_k: int = 8,
-        filter_dict: Dict[str, Any] = None
+        filter_dict: Optional[Dict[str, Any]] = None
     ) -> List[Dict[str, Any]]:
         """
-        Retrieves candidate context matches using Hybrid Search (Dense Vectors + Lexical Keyword Boost).
+        Executes parallel dense and sparse retrieval, then merges candidates using RRF.
         """
         if not self.db.index or not self.db.pc:
             return []
 
-        # Generate target dense search vector
-        query_vector = self.db.generate_embedding(query_text)
+        # Auto-sync local BM25 index from Pinecone if this is a cold namespace
+        self.db.lexical_store.sync_from_pinecone_if_empty(self.db.index, namespace=namespace)
 
-        # Extract search query tokens for lexical keyword scoring boost
-        query_tokens = set(re.findall(r'\b[a-zA-Z0-9_\-]{3,}\b', query_text.lower()))
+        fetch_k = max(top_k * 2, 16)
 
+        # 1. Path A: Dense Semantic Vector Search
+        dense_results = []
         try:
-            # Query Pinecone space for initial candidate pool (fetching 2x requested top_k)
-            fetch_k = max(top_k * 2, 10)
+            query_vector = self.db.generate_embedding(query_text, input_type="query")
             response = self.db.index.query(
                 namespace=namespace,
                 vector=query_vector,
@@ -36,36 +43,44 @@ class ContextRetriever:
                 include_metadata=True,
                 filter=filter_dict
             )
-
-            results = []
             for match in response.get("matches", []):
                 meta = match.get("metadata", {})
-                dense_score = match.get("score", 0.0)
-                text_content = meta.get("text_content", "")
-                chunk_tokens = set(meta.get("search_tokens", [])) or set(re.findall(r'\b[a-zA-Z0-9_\-]{3,}\b', text_content.lower()))
-
-                # Lexical keyword match ratio calculation
-                keyword_matches = query_tokens.intersection(chunk_tokens)
-                keyword_score = len(keyword_matches) / len(query_tokens) if query_tokens else 0.0
-
-                # Combined Hybrid Score: 70% Dense Semantic Vector + 30% Exact Keyword Match
-                hybrid_score = (0.7 * dense_score) + (0.3 * keyword_score)
-
-                results.append({
-                    "score": hybrid_score,
-                    "dense_score": dense_score,
-                    "keyword_score": keyword_score,
-                    "text": text_content,
+                dense_results.append({
+                    "id": match.get("id", ""),
+                    "score": float(match.get("score", 0.0)),
+                    "dense_score": float(match.get("score", 0.0)),
+                    "text": meta.get("text_content", ""),
                     "summary": meta.get("summary", ""),
                     "category": meta.get("category", ""),
                     "source_pages": meta.get("source_pages", []),
                     "parent_context_id": meta.get("parent_context_id", "")
                 })
-
-            # Sort by combined hybrid score descending and trim to top_k
-            results.sort(key=lambda x: x["score"], reverse=True)
-            return results[:top_k]
-
         except Exception as e:
-            print(f" Retrieval execution failure: {str(e)}")
-            return []
+            logger.error(f"Dense vector retrieval failure: {e}")
+
+        # 2. Path B: Sparse Lexical BM25 Search
+        sparse_results = []
+        try:
+            sparse_results = self.db.lexical_store.search(
+                query_text=query_text,
+                namespace=namespace,
+                top_k=fetch_k
+            )
+        except Exception as e:
+            logger.error(f"Sparse lexical retrieval failure: {e}")
+
+        # 3. Path C: Reciprocal Rank Fusion (RRF)
+        # If one search path is empty, fall back gracefully to the other
+        if not sparse_results:
+            return dense_results[:top_k]
+        if not dense_results:
+            return sparse_results[:top_k]
+
+        fused = reciprocal_rank_fusion(
+            dense_results=dense_results,
+            sparse_results=sparse_results,
+            k=60,
+            top_n=top_k
+        )
+
+        return fused

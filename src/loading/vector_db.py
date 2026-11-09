@@ -4,6 +4,7 @@ from typing import List, Dict, Any
 from pinecone import Pinecone
 from src.config import settings
 from src.models import ExtractedElement, ChunkMetadata, FinalVectorPayload
+from src.loading.lexical_store import LexicalStore
 
 
 class VectorDatabaseClient:
@@ -12,11 +13,18 @@ class VectorDatabaseClient:
         self.pc = Pinecone(api_key=api_key) if api_key else None
 
         self.index_name = getattr(settings, "PINECONE_INDEX_NAME", "semantic-etl-index")
-        self.index = self.pc.Index(self.index_name) if self.pc else None
+        self.index = None
+        if self.pc:
+            try:
+                self.index = self.pc.Index(self.index_name)
+            except Exception as e:
+                print(f" Warning: Could not connect to Pinecone index '{self.index_name}' at startup: {e}")
+        self.lexical_store = LexicalStore()
 
-    def generate_embedding(self, text: str) -> List[float]:
+    def generate_embedding(self, text: str, input_type: str = "passage") -> List[float]:
         """
         Computes the target 1024-dimensional dense array representation.
+        Supports asymmetric embedding: 'passage' for document indexing, 'query' for search queries.
         """
         # If no client is bound, return a non-zero test vector so Pinecone validation passes
         if not self.pc:
@@ -26,7 +34,7 @@ class VectorDatabaseClient:
             res = self.pc.inference.embed(
                 model="llama-text-embed-v2",
                 inputs=[text],
-                parameters={"input_type": "passage"}
+                parameters={"input_type": input_type}
             )
             return res.data[0].values
         except Exception as e:
@@ -76,4 +84,12 @@ class VectorDatabaseClient:
             })
 
         res = self.index.upsert(vectors=pinecone_records, namespace=namespace)
-        return res.get("upserted_count", len(pinecone_records))
+        upserted_count = res.get("upserted_count", len(pinecone_records))
+
+        # Synchronize payloads into persistent SQLite FTS5 BM25 store
+        try:
+            self.lexical_store.upsert(payloads, namespace=namespace)
+        except Exception as e:
+            print(f" Lexical store upsert warning: {e}")
+
+        return upserted_count

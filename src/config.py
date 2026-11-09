@@ -9,6 +9,19 @@ class Settings(BaseSettings):
     PORT: int = 8000
     CORS_ORIGINS: List[str] = ["*"]
 
+    # Provider Selection
+    LLM_PROVIDER: str = "azure"
+    VECTOR_STORE_PROVIDER: str = "pinecone"
+
+    # Azure AI / OpenAI Configuration
+    AZURE_API_KEY: Optional[str] = None
+    AZURE_OPENAI_ENDPOINT: Optional[str] = None
+    AZURE_SERVICES_ENDPOINT: Optional[str] = None
+    AZURE_MODEL_NAME: str = "gpt-4.1-nano"
+    AZURE_DEPLOYMENT_NAME: Optional[str] = None
+    AZURE_PROJECT_ENDPOINT: Optional[str] = None
+    AZURE_OPENAI_API_VERSION: str = "2024-02-15-preview"
+
     # Pinecone Vector Credentials
     PINECONE_API_KEY: Optional[str] = None
     PINECONE_INDEX_NAME: str = "semantic-etl-index"
@@ -26,7 +39,7 @@ class Settings(BaseSettings):
     # Chunking & Concurrency Options
     MAX_CHUNK_CHARS: int = 1200
     OVERLAP_ELEMENTS: int = 1
-    CONCURRENCY_LIMIT: int = 5
+    CONCURRENCY_LIMIT: int = 10
 
     # Local Filesystem Asset Paths
     DATA_DIR: str = os.path.abspath(os.path.join(os.path.dirname(__file__), "../data"))

@@ -69,6 +69,12 @@ class PDFParserEngine:
                 try:
                     pil_image = element.get_image(doc)
                     if pil_image:
+                        w, h = pil_image.size
+                        # Intelligent filter: Skip tiny decorative icons, bullet points, horizontal divider lines, or logos
+                        aspect_ratio = max(w, h) / max(min(w, h), 1)
+                        if w < 75 or h < 75 or aspect_ratio > 8.0:
+                            continue
+
                         image_filename = f"extracted_img_p{page_num}_{uuid.uuid4().hex[:8]}.png"
                         full_cache_path = os.path.join(settings.CACHE_DIR, image_filename)
 
@@ -80,7 +86,7 @@ class PDFParserEngine:
                             source_page=page_num,
                             image_cache_path=full_cache_path
                         ))
-                        print(f"[Extract] Successfully cached image found on page {page_num} -> {image_filename}")
+                        print(f"[Extract] Successfully cached technical diagram on page {page_num} ({w}x{h}) -> {image_filename}")
                 except Exception as img_err:
                     # if one image object fails to render, don't crash the entire file parsing pipeline
                     print(f"[Warning] Failed to render image object on page {page_num}: {img_err}")
