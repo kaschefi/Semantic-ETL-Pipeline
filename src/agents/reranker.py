@@ -1,6 +1,8 @@
 # src/agents/reranker.py
+import os
 from typing import List, Dict, Any, Optional
 from flashrank import Ranker, RerankRequest
+from src.config import settings
 from src.utils.logger import logger
 
 
@@ -15,8 +17,10 @@ class ContextReranker:
     def __init__(self, model_name: str = "ms-marco-MiniLM-L-12-v2"):
         if ContextReranker._ranker is None:
             try:
-                ContextReranker._ranker = Ranker(model_name=model_name)
-                logger.info(f"Initialized FlashRank Cross-Encoder ({model_name}).")
+                cache_dir = os.path.join(settings.DATA_DIR, "cache", "flashrank")
+                os.makedirs(cache_dir, exist_ok=True)
+                ContextReranker._ranker = Ranker(model_name=model_name, cache_dir=cache_dir)
+                logger.info(f"Initialized FlashRank Cross-Encoder ({model_name}) in {cache_dir}.")
             except Exception as e:
                 logger.error(f"FlashRank initialization error: {e}")
         self.ranker = ContextReranker._ranker
